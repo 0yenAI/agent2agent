@@ -1,4 +1,4 @@
-# Ollama A2A App
+# Agent to Agent with Gemini CLI, Claude Code and Ollama models
 
 🤖 **ハイブリッドAIエージェント対話デスクトップアプリケーション**
 
