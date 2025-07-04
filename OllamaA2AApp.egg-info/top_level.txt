@@ -1,2 +1,0 @@
-ollama_a2a_app
-test

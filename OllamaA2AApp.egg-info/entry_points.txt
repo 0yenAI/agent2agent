@@ -1,2 +1,0 @@
-[console_scripts]
-start = ollama_a2a_app.main:main
