@@ -19,6 +19,7 @@ Ollama A2A App is a desktop application that enables conversations between multi
 - **Python**: 3.12 or later
 - **uv**: Must be [installed](https://astral.sh/uv/install.sh).
 - **Ollama**: The latest version must be installed and the service running.
+  - **Important**: The context size (number of tokens) of Ollama models varies depending on the model used. If the "Timeout (seconds)" setting or the internal `num_ctx` and `num_predict` values exceed the model's maximum token limit, the application may crash or behave unexpectedly. Please check the recommended context size for your Ollama model and set appropriate values.
 
 ## 🚀 Setup & Launch
 
@@ -51,10 +52,10 @@ uv venv
 uv pip install -e .
 
 # 3. Launch the application
-uv run start
+uv run ollama_a2a_app/main.py
 ```
 
-The `uv run start` command executes the script defined in `pyproject.toml`.
+The `uv run` command executes the script directly using the Python interpreter in the virtual environment.
 
 ### 3. Configure API Keys (Optional)
 

@@ -1,3 +1,16 @@
+Metadata-Version: 2.4
+Name: OllamaA2AApp
+Version: 2.0.0
+Summary: A desktop application for agent-to-agent conversations using local and cloud-based AI models.
+License-Expression: Apache-2.0
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: requests>=2.32.0
+Requires-Dist: google-generativeai>=0.5.0
+Requires-Dist: anthropic>=0.56.0
+Requires-Dist: certifi
+Requires-Dist: pygame>=2.0.0; sys_platform == "win32"
+
 # Ollama A2A App
 
 🤖 **ハイブリッドAIエージェント対話デスクトップアプリケーション**
@@ -19,7 +32,6 @@ Ollama A2A Appは、OllamaによるローカルLLMと、Gemini・Claude APIを�
 - **Python**: 3.12 以降
 - **uv**: [インストール](https://astral.sh/uv/install.sh)されていること
 - **Ollama**: 最新版がインストールされ、サービスが起動していること
-  - **重要**: Ollamaモデルのコンテキストサイズ（トークン数）は、使用するモデルによって異なります。設定で指定する「タイムアウト(秒)」や内部的な`num_ctx`、`num_predict`の値がモデルの最大トークン数を超えると、アプリケーションがクラッシュしたり、予期せぬ動作を引き起こす可能性があります。ご使用のOllamaモデルの推奨コンテキストサイズを確認し、適切な値を設定してください。
 
 ## 🚀 セットアップ & 実行
 
@@ -52,10 +64,10 @@ uv venv
 uv pip install -e .
 
 # 3. アプリケーションの起動
-uv run ollama_a2a_app/main.py
+uv run start
 ```
 
-`uv run` コマンドが、仮想環境内のPythonを使って直接スクリプトを実行します。
+`uv run start` コマンドは、`pyproject.toml` に定義された `start` スクリプトを実行します。
 
 ### 3. APIキーの設定 (任意)
 

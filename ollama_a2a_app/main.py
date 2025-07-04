@@ -21,6 +21,8 @@ from pathlib import Path
 import google.generativeai as genai
 import anthropic
 import certifi
+import traceback
+import logging
 from typing import List, Dict, Any, Optional, Tuple, Callable
 
 # --- Constants ---
@@ -126,6 +128,15 @@ class OllamaA2AApp:
         self.gemini_api_key_path = project_root / ".gemini_api_key"
         self.claude_api_key_path = project_root / ".claude_api_key"
 
+        # Configure logging
+        log_file_path = project_root / "ollama_a2a_app.log"
+        logging.basicConfig(
+            level=logging.ERROR,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            filename=log_file_path,
+            filemode='a'
+        )
+
     def _load_api_keys(self):
         """Loads API keys from their respective files on startup."""
         self._load_single_api_key(self.gemini_api_key_path, self.gemini_api_key, "Gemini")
@@ -141,7 +152,7 @@ class OllamaA2AApp:
                 var.set(key)
                 self.message_queue.put((MSG_STATUS_OK, f"✅ {name} APIキー自動読み込み済み"))
         except Exception as e:
-            self.message_queue.put((MSG_ERROR, f"{name} APIキーファイルの読み込みエラー: {e}"))
+            logging.error(f"{name} APIキーファイルの読み込みエラー: {e}")
 
     # --- UI Setup ---
 
@@ -315,7 +326,7 @@ class OllamaA2AApp:
         test_frame.columnconfigure(0, weight=1)
         test_frame.columnconfigure(1, weight=1)
         
-        ttk.Button(test_frame, text="🔍 Ollama確認", command=self.check_ollama_status).grid(row=0, column=0, padx=(0, 5), pady=5, sticky="ew")
+        ttk.Button(test_frame, text="🔍 Ollama確認", command=self.check_ollama_status_sync_and_show_popup).grid(row=0, column=0, padx=(0, 5), pady=5, sticky="ew")
         ttk.Button(test_frame, text="🔊 音声テスト", command=self.test_audio_system).grid(row=0, column=1, padx=(5, 0), pady=5, sticky="ew")
 
         # Close Button
@@ -365,6 +376,7 @@ class OllamaA2AApp:
             self.message_queue.put((MSG_STATUS_OK, f"✅ {service_name} APIキー設定済み"))
         except Exception as e:
             messagebox.showerror("エラー", f"{service_name} APIキーの検証に失敗しました: {e}", parent=dialog)
+            logging.error(f"{service_name} APIキーの検証に失敗しました: {e}")
 
     def _validate_gemini_key(self, api_key: str):
         """Validation logic for Gemini API key."""
@@ -464,7 +476,9 @@ class OllamaA2AApp:
                 self.message_queue.put((MSG_SYSTEM, "=== 対話終了 ==="))
 
         except Exception as e:
-            self.message_queue.put((MSG_ERROR, f"予期しないエラーが発生しました: {e}"))
+            error_message = f"予期しないエラーが発生しました: {e}\n\n詳細:\n{traceback.format_exc()}"
+            logging.error(error_message)
+            self.message_queue.put((MSG_ERROR, "予期しないエラーが発生しました。ログファイルを確認してください。"))
         finally:
             self.message_queue.put((MSG_FINISHED, None))
 
@@ -472,8 +486,12 @@ class OllamaA2AApp:
         """Executes a single turn for one agent."""
         self.message_queue.put((MSG_SYSTEM, f"{agent_name} ({model_name}) 思考中..."))
         start_time = time.time()
+
+        # Add instruction for Japanese response
+        japanese_instruction = "以下の質問には必ず日本語で回答してください。\n\n"
+        modified_prompt = japanese_instruction + prompt
         
-        response = self._query_model_with_progress(model_name, prompt, agent_name)
+        response = self._query_model_with_progress(model_name, modified_prompt, agent_name)
         
         if response is None:
             elapsed = time.time() - start_time
@@ -507,10 +525,18 @@ class OllamaA2AApp:
 
     def _get_model_provider(self, model_name: str) -> Tuple[str, Dict[str, Any]]:
         """Gets the provider information for a given model name."""
+        # First, check if it's an Ollama model
+        if model_name in self.available_models:
+            return "Ollama", self.API_PROVIDERS["Ollama"]
+
+        # If not an Ollama model, check if it's an API model
         for provider, details in self.API_PROVIDERS.items():
-            if "models" in details and model_name in details["models"]:
+            if provider != "Ollama" and "models" in details and model_name in details["models"]:
                 return provider, details
-        return "Ollama", self.API_PROVIDERS["Ollama"]
+        
+        # Fallback (should ideally not be reached if models are correctly populated)
+        # This might indicate an invalid model name selected
+        raise ValueError(f"不明なモデル名です: {model_name}")
 
     def _query_model_with_progress(self, model_name: str, prompt: str, agent_name: str) -> Optional[str]:
         """Queries a model with a background progress updater."""
@@ -529,8 +555,13 @@ class OllamaA2AApp:
                 else:
                     response = query_function(model_name, prompt)
                 response_queue.put(response)
+            except ValueError as ve:
+                logging.error(f"モデルプロバイダーの特定エラー: {ve}\n{traceback.format_exc()}")
+                self.message_queue.put((MSG_ERROR, f"モデルプロバイダーの特定エラーが発生しました。ログファイルを確認してください。"))
+                response_queue.put(None)
             except Exception as e:
-                self.message_queue.put((MSG_ERROR, f"{provider_name} APIエラー: {e}"))
+                logging.error(f"{provider_name} APIエラー: {e}\n{traceback.format_exc()}")
+                self.message_queue.put((MSG_ERROR, f"{provider_name} APIエラーが発生しました。ログファイルを確認してください。"))
                 response_queue.put(None)
 
         query_thread = threading.Thread(target=query_target, daemon=True)
@@ -579,19 +610,33 @@ class OllamaA2AApp:
         try:
             data = {
                 "model": model, "prompt": prompt, "stream": False,
-                "options": {"temperature": 0.7, "top_p": 0.9, "num_ctx": 2048}
+                "options": {"temperature": 0.7, "top_p": 0.9, "num_ctx": 10000, "num_predict": 10000}
             }
             response = requests.post(f"{self.ollama_url}/api/generate", json=data, timeout=self.timeout_setting.get())
             response.raise_for_status()
-            return response.json().get("response", "応答を取得できませんでした")
+            json_response = response.json()
+            if "response" in json_response:
+                return json_response["response"]
+            else:
+                error_msg = f"Ollamaからの応答に'response'キーがありません。完全な応答: {json_response}"
+                logging.error(error_msg)
+                raise ValueError(error_msg)
         except requests.exceptions.Timeout:
-            raise TimeoutError(f"Ollamaへの接続がタイムアウトしました ({self.timeout_setting.get()}秒)")
+            error_msg = f"Ollamaへの接続がタイムアウトしました ({self.timeout_setting.get()}秒)"
+            logging.error(error_msg)
+            raise TimeoutError(error_msg)
         except requests.exceptions.ConnectionError:
-            raise ConnectionError("Ollamaサービスに接続できません。'ollama serve'を確認してください。")
+            error_msg = "Ollamaサービスに接続できません。'ollama serve'を確認してください。"
+            logging.error(error_msg)
+            raise ConnectionError(error_msg)
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
-                raise FileNotFoundError(f"モデル '{model}' が見つかりません (404エラー)")
-            raise IOError(f"Ollama APIエラー: {e.response.status_code} - {e.response.text}")
+                error_msg = f"モデル '{model}' が見つかりません (404エラー)"
+                logging.error(error_msg)
+                raise FileNotFoundError(error_msg)
+            error_msg = f"Ollama APIエラー: {e.response.status_code} - {e.response.text}"
+            logging.error(error_msg)
+            raise IOError(error_msg)
 
     # --- Ollama & Model Management ---
 
@@ -610,10 +655,41 @@ class OllamaA2AApp:
         
         threading.Thread(target=check_in_thread, daemon=True).start()
 
+    def check_ollama_status_sync_and_show_popup(self):
+        """Synchronously checks Ollama status and shows a popup with the result."""
+        parent_dialog = self.root.focus_get() or self.root
+
+        try:
+            self.status_label.config(text="Ollamaをチェックしています...")
+            self.root.update_idletasks()
+            
+            response = requests.get(f"{self.ollama_url}/api/tags", timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            models = [model['name'] for model in data.get('models', [])]
+            msg = f"✅ Ollama接続OK ({len(models)}個のモデルが見つかりました)"
+            
+            self.message_queue.put((MSG_STATUS_OK, msg))
+            self.message_queue.put((MSG_MODELS, models))
+            messagebox.showinfo("Ollama ステータス", msg, parent=parent_dialog)
+
+        except requests.exceptions.Timeout:
+            msg = "❌ Ollamaへの接続がタイムアウトしました (5秒)。"
+            self.message_queue.put((MSG_STATUS_ERROR, msg))
+            messagebox.showerror("Ollama ステータス", msg, parent=parent_dialog)
+        except requests.exceptions.ConnectionError:
+            msg = "❌ Ollamaサービスに接続できません。'ollama serve'が実行されているか確認してください。"
+            self.message_queue.put((MSG_STATUS_ERROR, msg))
+            messagebox.showerror("Ollama ステータス", msg, parent=parent_dialog)
+        except requests.exceptions.RequestException as e:
+            msg = f"❌ Ollamaへの接続中にエラーが発生しました: {e}"
+            self.message_queue.put((MSG_STATUS_ERROR, msg))
+            messagebox.showerror("Ollama ステータス", msg, parent=parent_dialog)
+
     def update_model_combos(self, ollama_models: List[str]):
         """Updates the model selection comboboxes with available models."""
         api_models = [name for p in self.API_PROVIDERS.values() if "models" in p for name in p["models"]]
-        full_model_list = sorted(api_models) + sorted(ollama_models)
+        full_model_list = sorted(ollama_models) + sorted(api_models)
 
         if self.agent1_combo and self.agent2_combo:
             self.agent1_combo['values'] = full_model_list
@@ -687,13 +763,13 @@ class OllamaA2AApp:
         if self.sound_played:
             return
         if not self.bell_sound_path.exists() or self.bell_sound_path.stat().st_size < 100:
-            self.add_message(MSG_ERROR, f"音声ファイルが見つからないか、破損しています: {self.bell_sound_path}\n")
+            logging.error(f"音声ファイルが見つからないか、破損しています: {self.bell_sound_path}")
             return
 
         def play_in_thread():
             command = self._get_sound_command()
             if command is None:
-                self.message_queue.put((MSG_ERROR, f"サポートされていないOSです: {sys.platform}\n"))
+                logging.error(f"サポートされていないOSです: {sys.platform}")
                 return
 
             try:
@@ -705,7 +781,8 @@ class OllamaA2AApp:
                 self.sound_played = True
                 self.message_queue.put((MSG_SYSTEM, "🔔 対話終了のお知らせ音を再生しました\n"))
             except Exception as e:
-                self.message_queue.put((MSG_ERROR, f"音声再生エラー: {e}\n"))
+                logging.error(f"音声再生エラー: {e}\n{traceback.format_exc()}")
+                self.message_queue.put((MSG_ERROR, "音声再生エラーが発生しました。ログファイルを確認してください。"))
 
         threading.Thread(target=play_in_thread, daemon=True).start()
 
