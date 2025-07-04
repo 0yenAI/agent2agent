@@ -21,3 +21,4 @@ build/
 # IDE / Editor specific
 .vscode/
 .idea/
+.DS_Store
