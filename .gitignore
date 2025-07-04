@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+venv/
+env/
+
+# Build artifacts
+.egg-info/
+dist/
+build/
+
+# API Keys & Secrets
+.gemini_api_key
+.claude_api_key
+
+# IDE / Editor specific
+.vscode/
+.idea/

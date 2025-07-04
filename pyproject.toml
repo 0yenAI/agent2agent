@@ -1,0 +1,21 @@
+[project]
+name = "OllamaA2AApp"
+version = "2.0.0"
+description = "A desktop application for agent-to-agent conversations using local and cloud-based AI models."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+
+dependencies = [
+    "requests>=2.32.0",
+    "google-generativeai>=0.5.0",
+    "anthropic>=0.56.0",
+    "certifi",
+    "pygame>=2.0.0; sys_platform == 'win32'"
+]
+
+[project.scripts]
+start = "ollama_a2a_app.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
