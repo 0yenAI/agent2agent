@@ -18,6 +18,7 @@ import sys
 from datetime import datetime
 import queue
 from pathlib import Path
+import re
 import google.generativeai as genai
 import anthropic
 import certifi
@@ -77,6 +78,16 @@ class OllamaA2AApp:
             "key_path_name": "claude_api_key_path",
             "validation_func": "_validate_claude_key",
         },
+        "OpenRouter": {
+            "models": {
+                "OpenRouter Model 1": "openrouter/model1",
+                "OpenRouter Model 2": "openrouter/model2",
+            },
+            "query_func": "_query_openrouter",
+            "key_var_name": "openrouter_api_key",
+            "key_path_name": "openrouter_api_key_path",
+            "validation_func": "_validate_openrouter_key",
+        },
         "Ollama": {
             "query_func": "_query_ollama",
         }
@@ -116,6 +127,9 @@ class OllamaA2AApp:
         self.timeout_setting = tk.IntVar(value=600)
         self.gemini_api_key = tk.StringVar()
         self.claude_api_key = tk.StringVar()
+        self.openrouter_api_key = tk.StringVar()
+        self.openrouter_model_1_name = tk.StringVar()
+        self.openrouter_model_2_name = tk.StringVar()
 
         # --- UI Component References ---
         self.agent1_combo: Optional[ttk.Combobox] = None
@@ -127,6 +141,9 @@ class OllamaA2AApp:
         self.bell_sound_path = project_root / "bell.mp3"
         self.gemini_api_key_path = project_root / ".gemini_api_key"
         self.claude_api_key_path = project_root / ".claude_api_key"
+        self.openrouter_api_key_path = project_root / ".openrouter_api_key"
+        self.openrouter_model_1_name_path = project_root / ".openrouter_model_1_name"
+        self.openrouter_model_2_name_path = project_root / ".openrouter_model_2_name"
 
         # Configure logging
         log_file_path = project_root / "ollama_a2a_app.log"
@@ -141,6 +158,9 @@ class OllamaA2AApp:
         """Loads API keys from their respective files on startup."""
         self._load_single_api_key(self.gemini_api_key_path, self.gemini_api_key, "Gemini")
         self._load_single_api_key(self.claude_api_key_path, self.claude_api_key, "Claude")
+        self._load_single_api_key(self.openrouter_api_key_path, self.openrouter_api_key, "OpenRouter")
+        self._load_single_api_key(self.openrouter_model_1_name_path, self.openrouter_model_1_name, "OpenRouter Model 1")
+        self._load_single_api_key(self.openrouter_model_2_name_path, self.openrouter_model_2_name, "OpenRouter Model 2")
 
     def _load_single_api_key(self, path: Path, var: tk.StringVar, name: str):
         """Helper to load one API key."""
@@ -319,6 +339,7 @@ class OllamaA2AApp:
         
         self._create_api_key_entry(api_frame, "Gemini", self.gemini_api_key, 0)
         self._create_api_key_entry(api_frame, "Claude", self.claude_api_key, 1)
+        self._create_openrouter_settings_entry(api_frame, 2)
 
         # Test Section
         test_frame = ttk.LabelFrame(dialog_frame, text="🛠️ テストと確認", padding="10")
@@ -347,10 +368,35 @@ class OllamaA2AApp:
         save_command = lambda: self._save_api_key_handler(service_name, entry.get(), parent)
         ttk.Button(frame, text="保存 & 検証", command=save_command).grid(row=1, column=0, columnspan=2, pady=(10, 0))
 
+    def _create_openrouter_settings_entry(self, parent: ttk.Frame, row: int):
+        """Helper to create the OpenRouter settings entry in the settings dialog."""
+        frame = ttk.LabelFrame(parent, text="OpenRouter API設定", padding="10")
+        frame.grid(row=row, column=0, sticky=(tk.W, tk.E), pady=5)
+        frame.columnconfigure(1, weight=1)
+
+        ttk.Label(frame, text="API Key:").grid(row=0, column=0, padx=(0, 10), sticky=tk.W)
+        key_entry = ttk.Entry(frame, textvariable=self.openrouter_api_key, show="*", width=40)
+        key_entry.grid(row=0, column=1, sticky="ew")
+
+        ttk.Label(frame, text="Model 1 Name:").grid(row=1, column=0, padx=(0, 10), sticky=tk.W)
+        model_1_entry = ttk.Entry(frame, textvariable=self.openrouter_model_1_name, width=40)
+        model_1_entry.grid(row=1, column=1, sticky="ew")
+
+        ttk.Label(frame, text="Model 2 Name:").grid(row=2, column=0, padx=(0, 10), sticky=tk.W)
+        model_2_entry = ttk.Entry(frame, textvariable=self.openrouter_model_2_name, width=40)
+        model_2_entry.grid(row=2, column=1, sticky="ew")
+        
+        save_command = lambda: self._save_openrouter_settings(key_entry.get(), model_1_entry.get(), model_2_entry.get(), parent)
+        ttk.Button(frame, text="保存 & 検証", command=save_command).grid(row=3, column=0, columnspan=2, pady=(10, 0))
+
     # --- API Key Handling ---
 
     def _save_api_key_handler(self, service_name: str, key: str, dialog: tk.Widget):
         """Handles the save button click for an API key."""
+        if service_name == "OpenRouter":
+            # This is handled by _save_openrouter_settings
+            return
+
         provider_info = self.API_PROVIDERS.get(service_name)
         if not provider_info:
             return
@@ -361,6 +407,29 @@ class OllamaA2AApp:
         validation_func = getattr(self, validation_func_name)
 
         self._save_api_key(key, key_path, key_var, service_name, validation_func, dialog)
+
+    def _save_openrouter_settings(self, key: str, model_1_name: str, model_2_name: str, dialog: tk.Widget):
+        """Saves and validates OpenRouter settings."""
+        if not key:
+            messagebox.showwarning("警告", "OpenRouter APIキーが入力されていません", parent=dialog)
+            return
+        if not model_1_name or not model_2_name:
+            messagebox.showwarning("警告", "OpenRouterのモデル名が入力されていません", parent=dialog)
+            return
+
+        try:
+            self._validate_openrouter_key(key, [model_1_name, model_2_name])
+            self.openrouter_api_key_path.write_text(key)
+            self.openrouter_model_1_name_path.write_text(model_1_name)
+            self.openrouter_model_2_name_path.write_text(model_2_name)
+            self.openrouter_api_key.set(key)
+            self.openrouter_model_1_name.set(model_1_name)
+            self.openrouter_model_2_name.set(model_2_name)
+            messagebox.showinfo("成功", "OpenRouterの設定が正常に保存されました", parent=dialog)
+            self.message_queue.put((MSG_STATUS_OK, "✅ OpenRouter APIキー設定済み"))
+        except Exception as e:
+            messagebox.showerror("エラー", f"OpenRouterの検証に失敗しました: {e}", parent=dialog)
+            logging.error(f"OpenRouterの検証に失敗しました: {e}")
 
     def _save_api_key(self, key: str, key_path: Path, key_var: tk.StringVar, service_name: str, validation_func: Callable[[str], None], dialog: tk.Widget):
         """Generic logic to validate and save an API key."""
@@ -387,6 +456,20 @@ class OllamaA2AApp:
         """Validation logic for Claude API key."""
         client = anthropic.Anthropic(api_key=api_key, timeout=60.0)
         client.models.list()
+
+    def _validate_openrouter_key(self, api_key: str, model_names: List[str]):
+        """Validation logic for OpenRouter API key and models."""
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        response = requests.get(f"https://openrouter.ai/api/v1/models", headers=headers)
+        response.raise_for_status()
+        models = response.json().get("data", [])
+        available_models = {model["id"] for model in models}
+        for model_name in model_names:
+            if model_name not in available_models:
+                raise ValueError(f"モデル '{model_name}' はOpenRouterで利用できません。")
 
     # --- Conversation Logic ---
 
@@ -464,13 +547,42 @@ class OllamaA2AApp:
                     self.message_queue.put((MSG_SYSTEM, "⏹ 対話が停止されました。"))
                     break
 
+                # Add a cooldown period to avoid rate limiting
+                time.sleep(2)
+
                 # Agent 2's turn
-                agent2_prompt = f"前のエージェントの意見: {agent1_response}\n\nこの意見について評価・批評・改善提案をしてください: {initial_prompt}"
+                agent2_prompt = f"""前のエージェントの意見:
+
+---
+
+{agent1_response}
+
+---
+
+上記の意見を踏まえ、以下のテーマについて評価・批評・改善提案をしてください:
+
+> {initial_prompt}
+"""
                 agent2_response = self._run_agent_turn("Agent 2", self.agent2_model.get(), agent2_prompt)
                 if agent2_response is None: break
 
                 # Prepare for the next round
-                current_prompt = f"前回の議論:\nAgent1: {agent1_response}\n\nAgent2: {agent2_response}\n\nこの議論を踏まえて、さらに深く考察してください: {initial_prompt}"
+                current_prompt = f"""これまでの議論の要約:
+
+**Agent 1 (分析役)の意見:**
+```text
+{agent1_response}
+```
+
+**Agent 2 (評価役)の意見:**
+```text
+{agent2_response}
+```
+
+上記の議論を踏まえ、以下のテーマについてさらに深く考察を続けてください:
+
+> {initial_prompt}
+"""
 
             if self.is_running:
                 self.message_queue.put((MSG_SYSTEM, "=== 対話終了 ==="))
@@ -511,8 +623,8 @@ class OllamaA2AApp:
         if self.current_thread and self.current_thread.is_alive():
             self.current_thread.join(timeout=1.0)
             
-        self.start_button.config(state="disabled")
-        self.stop_button.config(state="normal")
+        self.start_button.config(state="normal")
+        self.stop_button.config(state="disabled")
         self.progress.stop()
         self.status_label.config(text="対話停止")
 
@@ -525,6 +637,9 @@ class OllamaA2AApp:
 
     def _get_model_provider(self, model_name: str) -> Tuple[str, Dict[str, Any]]:
         """Gets the provider information for a given model name."""
+        if model_name.startswith("OpenRouter Model"):
+            return "OpenRouter", self.API_PROVIDERS["OpenRouter"]
+
         # First, check if it's an Ollama model
         if model_name in self.available_models:
             return "Ollama", self.API_PROVIDERS["Ollama"]
@@ -547,22 +662,53 @@ class OllamaA2AApp:
             provider_name, provider_details = self._get_model_provider(model_name)
             query_function_name = provider_details["query_func"]
             query_function = getattr(self, query_function_name)
+
+            max_retries = 5
+            base_delay = 2  # Start with a 2-second delay
+
+            for attempt in range(max_retries):
+                try:
+                    if provider_name == "OpenRouter":
+                        response = query_function(model_name, prompt)
+                    elif provider_name != "Ollama":
+                        api_model_id = provider_details["models"][model_name]
+                        response = query_function(api_model_id, prompt)
+                    else:
+                        response = query_function(model_name, prompt)
+                    
+                    response_queue.put(response)
+                    return  # Success
+
+                except requests.exceptions.HTTPError as e:
+                    if e.response.status_code == 429 and attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        self.message_queue.put((MSG_SYSTEM, f"レート制限: {delay}秒待機して再試行します... ({attempt + 1}/{max_retries})"))
+                        time.sleep(delay)
+                    else:
+                        logging.error(f"{provider_name} API HTTPエラー: {e}\n{traceback.format_exc()}")
+                        self.message_queue.put((MSG_ERROR, f"{provider_name} APIでHTTPエラーが発生しました。"))
+                        response_queue.put(None)
+                        return
+                except ValueError as ve:
+                    logging.error(f"モデルプロバイダーの特定エラー: {ve}\n{traceback.format_exc()}")
+                    self.message_queue.put((MSG_ERROR, f"モデルプロバイダーの特定エラーが発生しました。"))
+                    response_queue.put(None)
+                    return
+                except Exception as e:
+                    # Catch other potential errors like connection errors on retries
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        self.message_queue.put((MSG_SYSTEM, f"一時的なエラー: {delay}秒待機して再試行します... ({attempt + 1}/{max_retries})"))
+                        time.sleep(delay)
+                    else:
+                        logging.error(f"{provider_name} APIエラー: {e}\n{traceback.format_exc()}")
+                        self.message_queue.put((MSG_ERROR, f"{provider_name} APIでエラーが発生しました。"))
+                        response_queue.put(None)
+                        return
             
-            try:
-                if provider_name != "Ollama":
-                    api_model_id = provider_details["models"][model_name]
-                    response = query_function(api_model_id, prompt)
-                else:
-                    response = query_function(model_name, prompt)
-                response_queue.put(response)
-            except ValueError as ve:
-                logging.error(f"モデルプロバイダーの特定エラー: {ve}\n{traceback.format_exc()}")
-                self.message_queue.put((MSG_ERROR, f"モデルプロバイダーの特定エラーが発生しました。ログファイルを確認してください。"))
-                response_queue.put(None)
-            except Exception as e:
-                logging.error(f"{provider_name} APIエラー: {e}\n{traceback.format_exc()}")
-                self.message_queue.put((MSG_ERROR, f"{provider_name} APIエラーが発生しました。ログファイルを確認してください。"))
-                response_queue.put(None)
+            # If all retries fail
+            self.message_queue.put((MSG_ERROR, f"{provider_name} APIの再試行がすべて失敗しました。"))
+            response_queue.put(None)
 
         query_thread = threading.Thread(target=query_target, daemon=True)
         query_thread.start()
@@ -604,6 +750,34 @@ class OllamaA2AApp:
             messages=[{"role": "user", "content": prompt}]
         )
         return message.content[0].text
+
+    def _query_openrouter(self, model_id: str, prompt: str) -> Optional[str]:
+        """Queries the OpenRouter API."""
+        api_key = self.openrouter_api_key.get()
+        if not api_key:
+            raise ValueError("OpenRouter APIキーが設定されていません。")
+        
+        if model_id == "OpenRouter Model 1":
+            model_name = self.openrouter_model_1_name.get()
+        elif model_id == "OpenRouter Model 2":
+            model_name = self.openrouter_model_2_name.get()
+        else:
+            raise ValueError(f"無効なOpenRouterモデルIDです: {model_id}")
+
+        if not model_name:
+            raise ValueError("OpenRouterのモデル名が設定されていません。")
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "model": model_name,
+            "messages": [{"role": "user", "content": prompt}]
+        }
+        response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data, timeout=self.timeout_setting.get())
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"]
 
     def _query_ollama(self, model: str, prompt: str) -> Optional[str]:
         """Queries the Ollama API."""
@@ -688,7 +862,7 @@ class OllamaA2AApp:
 
     def update_model_combos(self, ollama_models: List[str]):
         """Updates the model selection comboboxes with available models."""
-        api_models = [name for p in self.API_PROVIDERS.values() if "models" in p for name in p["models"]]
+        api_models = [name for p_name, p_details in self.API_PROVIDERS.items() if "models" in p_details for name in p_details["models"]]
         full_model_list = sorted(ollama_models) + sorted(api_models)
 
         if self.agent1_combo and self.agent2_combo:
@@ -729,6 +903,9 @@ class OllamaA2AApp:
 
     def _format_as_markdown(self, content: str) -> str:
         """Formats the raw text content from the UI into Markdown."""
+        # Remove <think>...</think> blocks first
+        content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+
         lines = content.split('\n')
         markdown_lines = [
             "# Ollama A2A 対話ログ",

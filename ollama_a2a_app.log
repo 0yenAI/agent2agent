@@ -1,0 +1,33 @@
+2025-08-05 05:31:09,059 - ERROR - OpenRouter APIエラー: 429 Client Error: Too Many Requests for url: https://openrouter.ai/api/v1/chat/completions
+Traceback (most recent call last):
+  File "/Users/hoge/Desktop/agent2agent/ollama_a2a_app/main.py", line 638, in query_target
+    response = query_function(model_name, prompt)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hoge/Desktop/agent2agent/ollama_a2a_app/main.py", line 720, in _query_openrouter
+    response.raise_for_status()
+  File "/Users/hoge/Desktop/agent2agent/.venv/lib/python3.12/site-packages/requests/models.py", line 1026, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 429 Client Error: Too Many Requests for url: https://openrouter.ai/api/v1/chat/completions
+
+2025-08-05 05:49:54,125 - ERROR - OpenRouter APIエラー: 429 Client Error: Too Many Requests for url: https://openrouter.ai/api/v1/chat/completions
+Traceback (most recent call last):
+  File "/Users/hoge/Desktop/agent2agent/ollama_a2a_app/main.py", line 642, in query_target
+    response = query_function(model_name, prompt)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hoge/Desktop/agent2agent/ollama_a2a_app/main.py", line 724, in _query_openrouter
+    response.raise_for_status()
+  File "/Users/hoge/Desktop/agent2agent/.venv/lib/python3.12/site-packages/requests/models.py", line 1026, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 429 Client Error: Too Many Requests for url: https://openrouter.ai/api/v1/chat/completions
+
+2025-08-05 09:02:07,688 - ERROR - OpenRouter API HTTPエラー: 429 Client Error: Too Many Requests for url: https://openrouter.ai/api/v1/chat/completions
+Traceback (most recent call last):
+  File "/Users/hoge/Desktop/agent2agent/./ollama_a2a_app/main.py", line 672, in query_target
+    response = query_function(model_name, prompt)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hoge/Desktop/agent2agent/./ollama_a2a_app/main.py", line 779, in _query_openrouter
+    response.raise_for_status()
+  File "/Users/hoge/Desktop/agent2agent/.venv/lib/python3.12/site-packages/requests/models.py", line 1026, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 429 Client Error: Too Many Requests for url: https://openrouter.ai/api/v1/chat/completions
+
